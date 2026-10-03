@@ -1,0 +1,455 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="theme-color" content="#0a0a2e">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Axsel & Bilu">
+    <title>Axsel & Bilu - Teste</title>
+    <link rel="manifest" href="/webmanifest.json">
+    <link rel="apple-touch-icon" sizes="180x180" href="/icons/icon-384.png">
+    <link rel="icon" type="image/png" sizes="16x16" href="/icons/favicon-16.png">
+    <link rel="icon" type="image/png" sizes="32x32" href="/icons/favicon-32.png">
+    <link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png">
+    <style>
+  body {
+    margin: 0; background: #0a0a2e;
+    display: flex; justify-content: center; align-items: center;
+    min-height: 100vh; font-family: Arial, sans-serif; color: #fff;
+    flex-direction: column; gap: 15px;
+  }
+  #wrap {
+    position: relative;
+    box-shadow: 0 0 40px #ff4dd2;
+    border-radius: 12px; overflow: hidden;
+    border: 3px solid #4dd2ff;
+  }
+  canvas { display: block; }
+  #menu {
+    position: absolute; inset: 0;
+    background: rgba(5,5,30,0.95);
+    display: flex; flex-direction: column;
+    justify-content: center; align-items: center;
+    text-align: center; padding: 20px;
+  }
+  #menu h1 {
+    color: #ff4dd2; font-size: 42px; margin: 0 0 5px;
+    text-shadow: 0 0 20px #ff4dd2;
+  }
+  #menu p { color: #aaddff; margin: 10px 0 20px; font-size: 14px; }
+  #menu button {
+    background: linear-gradient(135deg, #4dd2ff, #ff4dd2);
+    border: 3px solid #fff; padding: 15px 50px;
+    font-size: 22px; color: #fff; border-radius: 50px;
+    cursor: pointer; font-weight: bold;
+  }
+  #menu button:hover { transform: scale(1.05); }
+  #hud {
+    position: absolute; top: 10px; left: 12px;
+    font-size: 14px; text-shadow: 0 0 8px #ff4dd2;
+    pointer-events: none; display: none;
+  }
+  #hud div { margin-bottom: 3px; }
+  #info {
+    color: #88bbdd; font-size: 13px;
+    text-align: center; max-width: 800px;
+  }
+  #info b { color: #4dd2ff; }
+</style>
+</head>
+<body>
+<div id="wrap">
+  <canvas id="cv" width="900" height="500"></canvas>
+  <div id="hud">
+    <div>🔵 Axsel: <span id="hpA">100</span></div>
+    <div>🟣 Bilu: <span id="hpB">100</span></div>
+    <div>⭐ Cristais: <span id="cry">0/0</span></div>
+  </div>
+  <div id="menu">
+    <h1>AXSEL & BILU</h1>
+    <p>Use as teclas para mover os dois heróis</p>
+    <button onclick="startGame()">▶ JOGAR</button>
+  </div>
+</div>
+<div id="info">
+  🔵 <b>Axsel:</b> ← → mover | ⬆️ pular | ESPAÇO atacar | SHIFT curar<br>
+  🟣 <b>Bilu:</b> A D mover | W pular | F atacar | G curar
+</div>
+
+<script>
+// ========== VARIÁVEIS GLOBAIS ==========
+var canvas = document.getElementById('cv');
+var ctx = canvas.getContext('2d');
+var W = 900, H = 500;
+
+var keys = {};
+var running = false;
+var time = 0;
+
+// Heróis
+var axsel = { x:100, y:300, w:40, h:50, vx:0, vy:0, hp:100, onGround:false, facing:1 };
+var bilu  = { x:180, y:300, w:40, h:50, vx:0, vy:0, hp:100, onGround:false, facing:1 };
+
+// Mundo simples
+var platforms = [
+  { x:0, y:440, w:900, h:60 },
+  { x:250, y:340, w:120, h:20 },
+  { x:450, y:270, w:120, h:20 },
+  { x:650, y:340, w:120, h:20 }
+];
+
+var particles = [];
+var GRAV = 0.7;
+
+// ========== INPUT ==========
+document.addEventListener('keydown', function(e){
+  var k = e.key.toLowerCase();
+  keys[k] = true;
+  if (k === ' ' || k === 'arrowup' || k === 'w') e.preventDefault();
+
+  if (!running) return;
+
+  if (e.key === ' ') {
+    spawnParticle(axsel.x + 20, axsel.y + 25, '#4dd2ff');
+  }
+  if (k === 'f') {
+    spawnParticle(bilu.x + 20, bilu.y + 25, '#ffee44');
+  }
+  if (k === 'shift') {
+    axsel.hp = Math.min(100, axsel.hp + 30);
+    for (var i=0; i<10; i++) spawnParticle(axsel.x+20, axsel.y+25, '#4dd2ff');
+  }
+  if (k === 'g') {
+    bilu.hp = Math.min(100, bilu.hp + 30);
+    for (var i=0; i<10; i++) spawnParticle(bilu.x+20, bilu.y+25, '#cc88ff');
+  }
+});
+document.addEventListener('keyup', function(e){
+  keys[e.key.toLowerCase()] = false;
+});
+
+// ========== PARTÍCULAS ==========
+function spawnParticle(x, y, color) {
+  particles.push({
+    x: x, y: y,
+    vx: (Math.random()-0.5) * 6,
+    vy: (Math.random()-0.5) * 6,
+    life: 30, color: color
+  });
+}
+
+// ========== FÍSICA ==========
+function physics(p, leftKeys, rightKeys, upKeys) {
+  var speed = 4.5;
+  var moving = false;
+  for (var i=0; i<leftKeys.length; i++) {
+    if (keys[leftKeys[i]]) { p.vx = -speed; p.facing = -1; moving = true; break; }
+  }
+  if (!moving) {
+    for (var i=0; i<rightKeys.length; i++) {
+      if (keys[rightKeys[i]]) { p.vx = speed; p.facing = 1; moving = true; break; }
+    }
+  }
+  if (!moving) p.vx *= 0.8;
+
+  var jumping = false;
+  for (var i=0; i<upKeys.length; i++) {
+    if (keys[upKeys[i]]) { jumping = true; break; }
+  }
+  if (jumping && p.onGround) {
+    p.vy = -14;
+    p.onGround = false;
+  }
+
+  p.vy += GRAV;
+  p.x += p.vx;
+  p.y += p.vy;
+
+  p.onGround = false;
+  for (var i=0; i<platforms.length; i++) {
+    var pl = platforms[i];
+    if (p.x + p.w > pl.x && p.x < pl.x + pl.w &&
+        p.y + p.h > pl.y && p.y + p.h < pl.y + pl.h + 25 &&
+        p.vy >= 0) {
+      p.y = pl.y - p.h;
+      p.vy = 0;
+      p.onGround = true;
+    }
+  }
+
+  if (p.x < 0) p.x = 0;
+  if (p.x + p.w > W) p.x = W - p.w;
+  if (p.y > H + 100) { p.x = 100; p.y = 300; p.vy = 0; p.hp -= 20; }
+}
+
+// ========== UPDATE ==========
+function update() {
+  time++;
+  physics(axsel, ['arrowleft'], ['arrowright'], ['arrowup']);
+  physics(bilu, ['a'], ['d'], ['w']);
+
+  for (var i=particles.length-1; i>=0; i--) {
+    var p = particles[i];
+    p.x += p.vx; p.y += p.vy; p.vy += 0.1; p.life--;
+    if (p.life <= 0) particles.splice(i, 1);
+  }
+
+  document.getElementById('hpA').textContent = Math.round(axsel.hp);
+  document.getElementById('hpB').textContent = Math.round(bilu.hp);
+  document.getElementById('cry').textContent = '0/0';
+}
+
+// ========== DESENHOS ==========
+function drawAxsel(p) {
+  ctx.save();
+  ctx.translate(p.x + 20, p.y + 25);
+  ctx.scale(p.facing, 1);
+  ctx.translate(-20, -25);
+
+  ctx.shadowColor = '#ff4dd2';
+  ctx.shadowBlur = 20;
+
+  // Cauda
+  ctx.fillStyle = '#4da6ff';
+  ctx.beginPath();
+  ctx.moveTo(10, 35);
+  ctx.quadraticCurveTo(-20, 40, -15, 20);
+  ctx.quadraticCurveTo(-10, 25, 5, 30);
+  ctx.fill();
+
+  // Guelras
+  ctx.fillStyle = '#ff4dd2';
+  ctx.shadowBlur = 15;
+  for (var i=0; i<3; i++) {
+    ctx.beginPath();
+    ctx.ellipse(30 + i*2, 8 + i*3, 8, 4, -0.5 + i*0.3, 0, Math.PI*2);
+    ctx.fill();
+  }
+
+  // Corpo
+  ctx.shadowBlur = 10;
+  ctx.fillStyle = '#4da6ff';
+  ctx.beginPath();
+  ctx.ellipse(20, 30, 18, 20, 0, 0, Math.PI*2);
+  ctx.fill();
+
+  // Barriga
+  ctx.fillStyle = '#b3e0ff';
+  ctx.beginPath();
+  ctx.ellipse(22, 35, 11, 12, 0, 0, Math.PI*2);
+  ctx.fill();
+
+  // Cabeça
+  ctx.fillStyle = '#4da6ff';
+  ctx.beginPath();
+  ctx.ellipse(22, 15, 16, 15, 0, 0, Math.PI*2);
+  ctx.fill();
+
+  // Olhos
+  ctx.shadowBlur = 0;
+  ctx.fillStyle = '#0a0a2e';
+  ctx.beginPath();
+  ctx.arc(15, 12, 5, 0, Math.PI*2);
+  ctx.arc(30, 12, 5, 0, Math.PI*2);
+  ctx.fill();
+
+  ctx.fillStyle = '#fff';
+  ctx.beginPath();
+  ctx.arc(17, 10, 1.8, 0, Math.PI*2);
+  ctx.arc(32, 10, 1.8, 0, Math.PI*2);
+  ctx.fill();
+
+  // Sorriso
+  ctx.strokeStyle = '#0a0a2e';
+  ctx.lineWidth = 1.8;
+  ctx.beginPath();
+  ctx.arc(22, 19, 4, 0.1, Math.PI - 0.1);
+  ctx.stroke();
+
+  ctx.restore();
+}
+
+function drawBilu(p) {
+  ctx.save();
+  ctx.translate(p.x + 20, p.y + 25);
+  ctx.scale(p.facing, 1);
+  ctx.translate(-20, -25);
+
+  ctx.shadowColor = '#cc88ff';
+  ctx.shadowBlur = 20;
+
+  // Cauda com estrelas
+  ctx.fillStyle = '#8844dd';
+  ctx.beginPath();
+  ctx.moveTo(-5, 25);
+  ctx.quadraticCurveTo(-35, 35, -40, 10);
+  ctx.quadraticCurveTo(-45, 30, -25, 40);
+  ctx.quadraticCurveTo(-15, 45, -5, 35);
+  ctx.closePath();
+  ctx.fill();
+
+  ctx.fillStyle = '#ffee44';
+  ctx.shadowBlur = 15;
+  var stars = [[-30,20],[-20,30],[-10,33]];
+  for (var i=0; i<stars.length; i++) {
+    ctx.beginPath();
+    ctx.arc(stars[i][0], stars[i][1], 2, 0, Math.PI*2);
+    ctx.fill();
+  }
+
+  // Corpo
+  ctx.shadowColor = '#cc88ff';
+  ctx.shadowBlur = 15;
+  ctx.fillStyle = '#aa66ff';
+  ctx.beginPath();
+  ctx.ellipse(20, 30, 17, 19, 0, 0, Math.PI*2);
+  ctx.fill();
+
+  // Barriga
+  ctx.fillStyle = '#e0d0ff';
+  ctx.beginPath();
+  ctx.ellipse(22, 35, 10, 11, 0, 0, Math.PI*2);
+  ctx.fill();
+
+  // Cabeça
+  ctx.fillStyle = '#aa66ff';
+  ctx.beginPath();
+  ctx.ellipse(22, 14, 15, 14, 0, 0, Math.PI*2);
+  ctx.fill();
+
+  // Orelhinhas
+  ctx.beginPath();
+  ctx.ellipse(13, 4, 4, 6, -0.3, 0, Math.PI*2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.ellipse(31, 4, 4, 6, 0.3, 0, Math.PI*2);
+  ctx.fill();
+
+  // Tufo brilhante
+  ctx.fillStyle = '#ffee44';
+  ctx.shadowBlur = 18;
+  for (var i=0; i<3; i++) {
+    ctx.beginPath();
+    ctx.ellipse(20 + i*3, 2 - i*2, 3, 2.5, 0, 0, Math.PI*2);
+    ctx.fill();
+  }
+
+  // Olhos
+  ctx.shadowBlur = 0;
+  ctx.fillStyle = '#0a0a2e';
+  ctx.beginPath();
+  ctx.arc(16, 12, 4.5, 0, Math.PI*2);
+  ctx.arc(29, 12, 4.5, 0, Math.PI*2);
+  ctx.fill();
+
+  ctx.fillStyle = '#ffee44';
+  ctx.beginPath();
+  ctx.arc(17, 11, 1.8, 0, Math.PI*2);
+  ctx.arc(30, 11, 1.8, 0, Math.PI*2);
+  ctx.fill();
+
+  // Focinho
+  ctx.fillStyle = '#0a0a2e';
+  ctx.beginPath();
+  ctx.arc(22, 17, 2, 0, Math.PI*2);
+  ctx.fill();
+
+  // Sorriso
+  ctx.strokeStyle = '#0a0a2e';
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.arc(22, 20, 3.5, 0.1, Math.PI - 0.1);
+  ctx.stroke();
+
+  ctx.restore();
+}
+
+function drawBackground() {
+  var grad = ctx.createLinearGradient(0, 0, 0, H);
+  grad.addColorStop(0, '#0a0a3e');
+  grad.addColorStop(0.5, '#0d1b3e');
+  grad.addColorStop(1, '#0a1530');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, W, H);
+
+  // Estrelinhas
+  for (var i=0; i<50; i++) {
+    var sx = (i * 137 + time * 0.3) % W;
+    var sy = (i * 53) % 300;
+    var alpha = 0.3 + Math.sin(time * 0.05 + i) * 0.3;
+    ctx.fillStyle = 'rgba(255,238,180,' + alpha + ')';
+    ctx.beginPath();
+    ctx.arc(sx, sy, 1.5, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // Plataformas
+  for (var i=0; i<platforms.length; i++) {
+    var p = platforms[i];
+    var pg = ctx.createLinearGradient(p.x, p.y, p.x, p.y + p.h);
+    pg.addColorStop(0, '#1a2a5e');
+    pg.addColorStop(1, '#0a1530');
+    ctx.fillStyle = pg;
+    ctx.fillRect(p.x, p.y, p.w, p.h);
+    ctx.strokeStyle = '#4dd2ff';
+    ctx.lineWidth = 2;
+    ctx.shadowColor = '#4dd2ff';
+    ctx.shadowBlur = 8;
+    ctx.beginPath();
+    ctx.moveTo(p.x, p.y);
+    ctx.lineTo(p.x + p.w, p.y);
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+  }
+
+  // Partículas
+  for (var i=0; i<particles.length; i++) {
+    var pp = particles[i];
+    ctx.fillStyle = pp.color;
+    ctx.globalAlpha = pp.life / 30;
+    ctx.beginPath();
+    ctx.arc(pp.x, pp.y, 4, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+
+  // Heróis
+  drawAxsel(axsel);
+  drawBilu(bilu);
+}
+
+// ========== LOOP ==========
+function gameLoop() {
+  if (running) {
+    update();
+    drawBackground();
+  }
+  requestAnimationFrame(gameLoop);
+}
+
+// ========== INICIAR ==========
+function startGame() {
+  document.getElementById('menu').style.display = 'none';
+  document.getElementById('hud').style.display = 'block';
+  running = true;
+  axsel.x = 100; axsel.y = 300; axsel.hp = 100;
+  bilu.x = 180; bilu.y = 300; bilu.hp = 100;
+}
+
+// Desenha uma tela parada antes de começar
+drawBackground();
+gameLoop();
+
+// Registro do Service Worker (PWA)
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', function() {
+    navigator.serviceWorker.register('/service-worker.js')
+      .then(function(reg) { console.log('SW registrado:', reg.scope); })
+      .catch(function(err) { console.log('SW falhou:', err); });
+  });
+}
+</script>
+</body>
+</html>
